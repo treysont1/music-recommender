@@ -1,19 +1,30 @@
 flowchart TD
-    A([User Preferences\ngenre · mood · energy · valence · acousticness · tempo]) --> B
+    subgraph DATA["Data Pipeline (run once)"]
+        A1[Kaggle Spotify CSVs] --> A2[prepare_data.py\nmerge · rename · derive mood]
+        A2 --> A3[(spotify_tracks.csv\n1000 top tracks)]
+    end
 
-    B[Load songs from CSV] --> C
+    subgraph INDEX["Indexing (run once)"]
+        A3 --> B1[build_index\nsrc/rag.py]
+        B1 --> B2[SentenceTransformer\nall-MiniLM-L6-v2\nlocal embeddings]
+        B2 --> B3[(ChromaDB\nvector store)]
+    end
 
-    C{For each song in catalog} --> D
+    subgraph QUERY["Query Pipeline (every run)"]
+        C1([User\nnatural language query]) --> C2[Embed query\nSentenceTransformer]
+        C2 --> C3[Retrieve top-10\nChromaDB cosine search]
+        B3 --> C3
+        C3 --> C4[Augment prompt\nwith retrieved songs]
+        C4 --> C5[Gemini 2.5 Flash\ngenerate recommendation]
+        C5 --> C6([Recommendation\ntop 5 songs with explanations])
+    end
 
-    D[Score: genre match\nExact = 1.0 · Related = partial · Unrelated = 0.0] --> E
-    E[Score: mood match\nExact = 1.0 · No match = 0.0] --> F
-    F[Score: numeric proximity\nenergy · valence · acousticness · tempo] --> G
-    G[Weighted sum ÷ 10\n= final score 0.0–1.0] --> H
+    subgraph LEGACY["Rule-Based System (src/recommender.py)"]
+        D1([Structured user profile\ngenre · mood · energy · tempo]) --> D2[Weighted scoring\n_compute_score]
+        D2 --> D3([Top-K songs\nwith score + explanation])
+    end
 
-    H{More songs?}
-    H -- Yes --> C
-    H -- No --> I
-
-    I[Sort all scores\nhighest → lowest] --> J
-
-    J([Top K Recommendations\nwith score and explanation])
+    subgraph TESTING["Human + Automated Testing"]
+        E1[pytest\ntests/test_recommender.py] -->|validates| LEGACY
+        E2[Human evaluation\nquery the RAG system\njudge relevance] -->|reviews output| QUERY
+    end
