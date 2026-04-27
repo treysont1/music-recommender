@@ -1,260 +1,191 @@
-# 🎵 Music Recommender Simulation
+# Music Recommender — RAG Edition
 
-## Project Summary
+## Original Project: Music Recommender Simulation
 
-In this project you will build and explain a small music recommender system.
-
-Your goal is to:
-
-- Represent songs and a user "taste profile" as data
-- Design a scoring rule that turns that data into recommendations
-- Evaluate what your system gets right and wrong
-- Reflect on how this mirrors real world AI recommenders
-
-Replace this paragraph with your own summary of what your version does.
+This project started as the **Music Recommender Simulation**, a rule-based content filtering system that scored songs from a small hand-crafted catalog against a structured user profile (genre, mood, energy, valence, acousticness, tempo). The original system ranked every song in the catalog using a weighted scoring formula and returned the top-k results with a plain-English explanation of why each song matched. It demonstrated how real-world recommenders turn structured data into predictions and where bias can emerge from weighted categorical features.
 
 ---
 
-## How The System Works
+## Title and Summary
 
-This system uses **content-based filtering** — it compares song attributes directly against a user's declared taste preferences to produce a ranked list of recommendations. It does not use other users' behavior.
+**Music Recommender — RAG Edition** extends the original simulation with a full Retrieval-Augmented Generation (RAG) pipeline. Users describe what they want to listen to in plain English — "something melancholic to study to" or "high energy workout music" — and the system retrieves the most semantically similar songs from a 1,000-track Spotify dataset, then uses Gemini 2.5 Flash to generate a conversational recommendation with a reason for each pick.
 
-Each song will include genre, mood, energy, acousticness, valence, and tempo. To my knowledge, real-world recommendation systems use a combination of song-based attributes, and collaborative filtering. By recognizing specific values that resonate with a user, as well as songs that other users with similar taste enjoy, recommendation systems are able to provide better recommendations.
-
-**Song features:**
-- `genre` — categorical label (e.g. hip-hop, folk, edm)
-- `mood` — categorical label (e.g. happy, melancholic, aggressive)
-- `energy` — float 0.0–1.0, how intense the track feels
-- `acousticness` — float 0.0–1.0, acoustic vs. electronic
-- `valence` — float 0.0–1.0, emotional positivity
-- `tempo_bpm` — beats per minute
-
-**UserProfile fields:**
-- `favorite_genre` — the genre the user prefers most
-- `favorite_mood` — the mood the user prefers most
-- `target_energy` — the energy level the user wants songs close to
-- `likes_acoustic` — boolean, whether the user prefers acoustic sounds
-
-**How the Recommender scores each song:**
-
-The score is a weighted sum of six sub-scores, each normalized to 0.0–1.0, divided by the maximum possible total (10.0):
-
-| Feature | Weight | Method |
-|---|---|---|
-| `genre` | 3.0 | 1.0 for exact match, partial credit for related genres (via similarity table), 0.0 for unrelated |
-| `mood` | 2.0 | 1.0 for exact match, 0.0 otherwise |
-| `energy` | 2.0 | `1.0 - abs(song - user target)` |
-| `acousticness` | 1.0 | `1.0 - abs(song - user target)` |
-| `valence` | 1.0 | `1.0 - abs(song - user target)` |
-| `tempo_bpm` | 1.0 | Normalized to 0–1 using catalog min/max, then proximity scored |
-
-Genre uses a similarity table rather than a strict binary match so that related genres (e.g. r&b scoring 0.7 against a hip-hop preference) still contribute to the score instead of returning zero.
-
-**How the final recommendations are chosen:**
-
-Every song in the catalog is scored independently. All scores are then sorted highest to lowest and the top `k` songs are returned (default k=5). The scoring rule answers "how well does this song fit?" for one song at a time; the ranking step answers "compared to everything else, which songs fit best?"
-
-See the flowchart for a visual overview: [flowchart.mmd](flowchart.mmd)
-
-**Algorithm recipe and known biases:**
-
-The recommender loads every song from `data/songs.csv` and scores each one against the user's taste profile by computing six sub-scores — genre similarity (exact match = 1.0, related = partial credit via lookup table, unrelated = 0.0), mood match (1.0 or 0.0), and four proximity scores using `1.0 - |song_value - user_target|` for energy, acousticness, valence, and tempo (tempo is first normalized to 0–1 using catalog min/max). Each sub-score is multiplied by its weight (genre 3.0, mood 2.0, energy 2.0, acousticness 1.0, valence 1.0, tempo 1.0), summed, and divided by 10.0 to produce a final score between 0.0 and 1.0. Songs are then sorted highest to lowest and the top `k` are returned. The main biases to be aware of are that genre carries 30% of the total score so users with niche or unrepresented genres are disadvantaged, the similarity table encodes subjective genre-relationship judgments that may not reflect all listeners, and the small catalog means genres with more songs have a structural advantage in numeric scoring.
+This matters because it bridges the gap between rigid structured filtering and the natural way people actually talk about music. The original system required users to know their exact energy score and preferred genre label. The RAG system removes that friction entirely.
 
 ---
 
-## Getting Started
+## Architecture Overview
 
-### Setup
+The system has two parallel paths and four main components:
 
-1. Create a virtual environment (optional but recommended):
+**RAG Pipeline (new):**
+1. **Data Pipeline** — two Kaggle Spotify CSVs are merged, columns renamed to match the internal schema, and mood labels are derived from valence and energy. The top 1,000 tracks by popularity are kept.
+2. **Indexer** — `sentence-transformers` (`all-MiniLM-L6-v2`) embeds each song's text description locally. Vectors are stored in a persistent ChromaDB collection. This runs once and is skipped on subsequent startups.
+3. **Retriever** — the user's query is embedded with the same model and ChromaDB returns the 10 most semantically similar songs via cosine similarity search.
+4. **Generator** — the 10 retrieved songs are passed to Gemini 2.5 Flash as context. Gemini selects the best 5 and writes a conversational explanation for each.
 
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate      # Mac or Linux
-   .venv\Scripts\activate         # Windows
+**Rule-Based System (original):**
+- `src/recommender.py` — weighted scoring across genre, mood, energy, acousticness, valence, and tempo. Still intact and tested.
 
-2. Install dependencies
+See [flowchart.mmd](flowchart.mmd) for a full visual breakdown.
+
+---
+
+## Setup Instructions
+
+**Requirements:** Python 3.10+, a [Gemini API key](https://aistudio.google.com/apikey)
 
 ```bash
+# 1. Clone the repo and create a virtual environment
+python -m venv venv
+source venv/bin/activate        # Mac/Linux
+venv\Scripts\activate           # Windows
+
+# 2. Install dependencies
 pip install -r requirements.txt
+
+# 3. Add your Gemini API key
+echo "GEMINI_API_KEY=your-key-here" > .env
+
+# 4. Run
+python main.py
 ```
 
-3. Run the app:
+On first run, `all-MiniLM-L6-v2` (~90MB) downloads once and the 1,000-track index is built locally in seconds. Every subsequent run skips indexing and goes straight to the query prompt.
 
+**To run the original rule-based system:**
 ```bash
 python -m src.main
 ```
 
-### Running Tests
-
-Run the starter tests with:
-
+**To run tests:**
 ```bash
 pytest
 ```
 
-You can add more tests in `tests/test_recommender.py`.
+---
+
+## Sample Interactions
+
+**Query 1 — Mood-based**
+```
+You: something sad and slow for a late night drive
+
+Recommendations:
+1. **"Waiting Room" by Phoebe Bridgers:** This song is incredibly sad and slow, making it ideal for a melancholic late-night drive.
+2. **"Sparks" by Coldplay:** With its ambient and sad mood, "Sparks" will perfectly complement the quiet introspection of a night drive.
+3. **"lacy" by Olivia Rodrigo:** This track delivers a sad and slow vibe that's just right for a thoughtful late-night journey.
+4. **"The Weekend" by SZA:** This R&B track offers a sad and laid-back feel, perfect for cruising slowly under the night sky.
+5. **"Big Black Car" by Gregory Alan Isakov:** This folk song has a distinctly sad and slow atmosphere that perfectly matches your request for a reflective late-night drive.
+...
+```
+
+**Query 2 — Activity-based**
+```
+You: high energy music to work out to
+
+Recommendations:
+1. **"What I've Done" by Linkin Park**: This track brings an intense rock energy that's perfect for pushing through a tough workout.
+2. **"Unstoppable" by Sia**: With its powerful vocals and driving beat, this song will make you feel, well, unstoppable!
+3. **"Push Up - Main Edit" by Creeds**: Get ready to feel the adrenaline with this high-energy gaming track that's made for moving.
+4. **"Not Strong Enough" by boygenius, Julien Baker, Phoebe Bridgers, Lucy Dacus**: This rock anthem has a strong, driving rhythm that will keep your momentum going.
+5. **"Runaway" by Bon Jovi**: This classic rock hit has an infectious high energy and a happy vibe to keep you motivated and smiling while you exercise.
+...
+```
+
+**Query 3 — Vibe-based**
+```
+You: chill indie music for a Sunday morning
+
+Recommendations:
+1.  "Clouded" by Brent Faiyaz: This R&B track has a really chill vibe, perfect for easing into your Sunday.
+2.  "anything" by Adrianne Lenker: With its folk genre and chill mood, this song offers a gentle and introspective feel for your morning.
+3.  "Royals" by Lorde: While the mood is listed as sad, its somewhat subdued energy and pop genre could still provide a thoughtful and relaxed backdrop for your morning.
+4.  "The Weekend" by SZA: This R&B song has a lower energy and valence, making it suitable for a more laid-back and reflective Sunday morning.
+5.  "Closer" by The Chainsmokers, Halsey: Even though it's electronic, its moderate energy and happy mood could offer a pleasant, soft pop background for your relaxing morning.
+...
+```
 
 ---
 
-## Experiments You Tried
+## Design Decisions
 
-Six user profiles are defined in `src/main.py` and run automatically when you execute the app. Each is designed to test a different aspect of the scoring logic.
+**Why keep the original rule-based system?**
+The weighted scoring system in `src/recommender.py` is fully transparent and deterministic — you can read the output and trace exactly why a song scored the way it did. It also has automated tests. The RAG system replaces the user-facing interface but the original logic is preserved as a reference and still passes all tests.
 
-**Standard profiles** — test normal expected behavior:
+**Why `sentence-transformers` instead of Gemini embeddings?**
+Gemini's embedding API (`gemini-embedding-2`) on the free tier is capped at 100 requests per minute with no batch support, making it impractical to index 1,000 tracks without hitting rate limits. `all-MiniLM-L6-v2` runs locally with no API calls, indexes all tracks in seconds, and produces high-quality semantic embeddings. Gemini is reserved for the generation step where it genuinely adds value.
 
-| Profile | Genre | Mood | Energy | Intent |
-|---|---|---|---|---|
-| High-Energy Pop | pop | happy | 0.85 | Clear genre match, many candidate songs |
-| Chill Lofi | lofi | chill | 0.38 | Low energy, high acoustic — should surface lofi and ambient |
-| Deep Intense Rock | rock | intense | 0.90 | High energy, low acoustic, fast tempo |
+**Why disable thinking on Gemini 2.5 Flash?**
+Gemini 2.5 Flash enables extended reasoning by default. For a task as straightforward as selecting 5 songs from a list of 10 and writing one sentence per song, the added reasoning time produced no meaningful improvement in output quality. Disabling it (`thinking_budget=0`) cut response latency significantly.
 
-**Adversarial / edge case profiles** — designed to expose weaknesses or unexpected behavior:
+**Why top 1,000 tracks by popularity?**
+The free tier embedding quota and the nature of a demo project made a smaller, higher-quality catalog the right call. Popular tracks are more likely to be recognized and evaluated meaningfully by a human grader.
 
-| Profile | What it tests |
-|---|---|
-| Contradictory | Genre/mood say "lofi, chill" but energy/tempo say loud and fast — do numeric features override categoricals? |
-| No Genre Match | Genre set to "reggae" (not in catalog) — forces ranking on numeric features alone with no genre contribution |
-| All Middle | Every numeric value at 0.5 — does the system collapse into near-identical scores, or do categorical matches still separate results? |
+**Trade-offs:**
+- Local embeddings are fast and free but the model (`all-MiniLM-L6-v2`) is less semantically rich than Gemini's embedding models.
+- Mood labels are derived from valence and energy with a simple 2×2 grid — this loses nuance but keeps the original scoring system compatible.
+- The catalog is limited to 1,000 songs, which means niche genres are underrepresented.
 
 ---
 
-![high energy pop profile](image.png)
-![chill lofi profile](image-1.png)
-![intense rock](image-2.png)
-![contradictory results](image-3.png)
-![no genre match](image-4.png)
+## Testing Summary
 
-## Limitations and Risks
+**What worked:**
+- The original rule-based tests in `tests/test_recommender.py` pass cleanly and cover scoring, genre similarity, edge cases (no genre match, contradictory profiles), and the OOP interface.
+- The RAG pipeline retrieves semantically relevant songs consistently — mood and activity queries return songs that match the intent without needing explicit feature labels.
+- Disabling Gemini's thinking mode reduced response latency while keeping recommendation quality high for this task.
 
-Summarize some limitations of your recommender.
+**What didn't work:**
+- Gemini's embedding API (`text-embedding-004` and `gemini-embedding-2`) could not be used for indexing due to rate limits and lack of batch support on the free tier.
+- The initial `google-generativeai` package was the wrong SDK — the correct one is `google-genai` (`from google import genai`).
+- Model names with preview tags (e.g. `gemini-2.5-flash-preview-04-17`) are not always available; using the stable name (`gemini-2.5-flash`) is more reliable.
 
-Examples:
-
-- It only works on a tiny catalog
-- It does not understand lyrics or language
-- It might over favor one genre or mood
-
-You will go deeper on this in your model card.
+**What I learned:**
+- API free tier constraints heavily influence architecture decisions. The "best" embedding model on paper became the wrong choice once quota limits were factored in.
+- RAG separates well into three independent concerns — embedding, retrieval, and generation — which makes each piece easy to swap out without touching the others.
+- Keeping the original system intact made it easy to isolate what the RAG layer actually adds.
 
 ---
 
 ## Reflection
 
-Read and complete `model_card.md`:
+Building this project made the abstract concept of RAG concrete. The retrieval step is a nearest-neighbor search over vectors, and its quality is entirely determined by how well the embedding model captures semantic meaning. Swapping embedding models changed what "similar" meant, which changed the results.
 
-[**Model Card**](model_card.md)
+It also reinforced that AI systems are not monolithic. The best solution here used a local embedding model, a vector database, and a cloud LLM for generation — three different tools doing three different jobs. Understanding where each one adds value, and where its limits are, is more useful than defaulting to one provider for everything.
 
-Write 1 to 2 paragraphs here about what you learned:
-
-- about how recommenders turn data into predictions
-- about where bias or unfairness could show up in systems like this
-
+The biggest open question this project raised is evaluation. It is easy to tell when a recommendation is obviously wrong, but hard to define what "good" means systematically. Real-world recommenders solve this with click data and listening history. Without that signal, human judgment remains the only meaningful evaluator.
 
 ---
 
-## 7. `model_card_template.md`
+## Limitations and Ethics
 
-Combines reflection and model card framing from the Module 3 guidance. :contentReference[oaicite:2]{index=2}  
+This project and its data is derived from the top 1000 most popular songs on Spotify, so it may not provide any more niche artists/songs. In addition, the dataset was updated around 4 months ago, meaning new songs won't be included.
 
-```markdown
-# 🎧 Model Card - Music Recommender Simulation
+Though I tried to find ways to exploit this AI, by telling it to ignore all prompts and give me an answer to a question, it denied that request, and instead found songs related to my question.
 
-## 1. Model Name
+I'd say this surprised me, as the AI model was very resistant, and insisted on its role as a music recommendation system.
 
-Give your recommender a name, for example:
-
-> VibeFinder 1.0
+In this project, I used AI as a learning tool, and with writing boilerplate code. I was unfamiliar with chroma db, but it allowed me to use it effectively in this project. It was very helpful in this. One suggestion I disliked, however, was having a much larger dataset and using the Gemini embedding tool which would take about 3 days to fully compile due to rate limits.
 
 ---
 
-## 2. Intended Use
+## Project Structure
 
-- What is this system trying to do
-- Who is it for
-
-Example:
-
-> This model suggests 3 to 5 songs from a small catalog based on a user's preferred genre, mood, and energy level. It is for classroom exploration only, not for real users.
-
----
-
-## 3. How It Works (Short Explanation)
-
-Describe your scoring logic in plain language.
-
-- What features of each song does it consider
-- What information about the user does it use
-- How does it turn those into a number
-
-Try to avoid code in this section, treat it like an explanation to a non programmer.
-
----
-
-## 4. Data
-
-Describe your dataset.
-
-- How many songs are in `data/songs.csv`
-- Did you add or remove any songs
-- What kinds of genres or moods are represented
-- Whose taste does this data mostly reflect
-
----
-
-## 5. Strengths
-
-Where does your recommender work well
-
-You can think about:
-- Situations where the top results "felt right"
-- Particular user profiles it served well
-- Simplicity or transparency benefits
-
----
-
-## 6. Limitations and Bias
-
-Where does your recommender struggle
-
-Some prompts:
-- Does it ignore some genres or moods
-- Does it treat all users as if they have the same taste shape
-- Is it biased toward high energy or one genre by default
-- How could this be unfair if used in a real product
-
----
-
-## 7. Evaluation
-
-How did you check your system
-
-Examples:
-- You tried multiple user profiles and wrote down whether the results matched your expectations
-- You compared your simulation to what a real app like Spotify or YouTube tends to recommend
-- You wrote tests for your scoring logic
-
-You do not need a numeric metric, but if you used one, explain what it measures.
-
----
-
-## 8. Future Work
-
-If you had more time, how would you improve this recommender
-
-Examples:
-
-- Add support for multiple users and "group vibe" recommendations
-- Balance diversity of songs instead of always picking the closest match
-- Use more features, like tempo ranges or lyric themes
-
----
-
-## 9. Personal Reflection
-
-A few sentences about what you learned:
-
-- What surprised you about how your system behaved
-- How did building this change how you think about real music recommenders
-- Where do you think human judgment still matters, even if the model seems "smart"
-
+```
+.
+├── main.py                  # Entry point — builds index on first run, then query loop
+├── src/
+│   ├── rag.py               # RAG pipeline: embed, retrieve, generate
+│   ├── recommender.py       # Original rule-based scoring system
+│   ├── main.py              # Original CLI runner for rule-based profiles
+│   └── prepare_data.py      # Data prep: filter to top 1000 tracks
+├── data/
+│   ├── spotify_tracks.csv   # Cleaned 1000-track catalog
+│   └── chroma_db/           # Persistent vector index (generated, gitignored)
+├── tests/
+│   └── test_recommender.py  # Automated tests for rule-based system
+├── flowchart.mmd            # System diagram
+├── model_card.md            # Model card
+└── requirements.txt
+```
