@@ -13,3 +13,9 @@ venv/
 
 # Pytest cache
 .pytest_cache/
+
+# Environment variables
+.env
+
+# ChromaDB persistent storage
+data/chroma_db/
