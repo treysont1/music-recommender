@@ -3,7 +3,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from rag import build_index, recommend
+from rag import build_index
+from pipeline import recommend
 
 
 def main() -> None:
