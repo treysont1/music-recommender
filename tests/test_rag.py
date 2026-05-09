@@ -14,7 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from rag import _validate_query, _retrieve, LOW_CONFIDENCE_THRESHOLD
+from rag import retrieve
+from pipeline import _validate_query, LOW_CONFIDENCE_THRESHOLD
 
 SAMPLE_QUERIES = [
     "something sad and slow for a late night drive",
@@ -44,7 +45,7 @@ class TestInputValidation:
 class TestRetrieval:
     def test_similarity_scores_above_threshold(self):
         for query in SAMPLE_QUERIES:
-            songs, similarities = _retrieve(query)
+            songs, similarities = retrieve(query)
             avg = sum(similarities) / len(similarities)
             assert avg >= LOW_CONFIDENCE_THRESHOLD, (
                 f"Query '{query}' returned avg similarity {avg:.3f}, "
@@ -52,11 +53,11 @@ class TestRetrieval:
             )
 
     def test_retrieval_returns_correct_count(self):
-        songs, similarities = _retrieve("happy pop music", k=5)
+        songs, similarities = retrieve("happy pop music", k=5)
         assert len(songs) == 5
         assert len(similarities) == 5
 
     def test_similarities_in_valid_range(self):
-        _, similarities = _retrieve("chill lofi beats")
+        _, similarities = retrieve("chill lofi beats")
         for s in similarities:
             assert 0.0 <= s <= 1.0, f"Similarity {s} out of range"

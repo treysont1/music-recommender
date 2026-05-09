@@ -13,7 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from rag import _retrieve, _validate_query, LOW_CONFIDENCE_THRESHOLD
+from rag import retrieve
+from pipeline import _validate_query, LOW_CONFIDENCE_THRESHOLD
 
 EVAL_QUERIES = [
     # (query, description)
@@ -48,7 +49,7 @@ def run_evaluation() -> None:
             print(f"  Reason     : {validation_error}")
             continue
 
-        songs, similarities = _retrieve(query)
+        songs, similarities = retrieve(query)
         avg_sim = round(sum(similarities) / len(similarities), 3)
         top_sim = max(similarities)
         low_sim = min(similarities)

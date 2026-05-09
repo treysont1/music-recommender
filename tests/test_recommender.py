@@ -1,4 +1,10 @@
-from src.recommender import Song, UserProfile, Recommender
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from recommender import Song, UserProfile, Recommender
+
 
 def make_small_recommender() -> Recommender:
     songs = [
