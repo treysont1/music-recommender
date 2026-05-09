@@ -29,35 +29,7 @@ TRACKS_CSV = ROOT / "data" / "spotify_tracks.csv"
 CHROMA_DIR = str(ROOT / "data" / "chroma_db")
 COLLECTION_NAME = "spotify_tracks"
 GEN_MODEL = "gemini-2.5-flash"
-TOP_K = 10
-LOW_CONFIDENCE_THRESHOLD = 0.3
-MIN_QUERY_LENGTH = 3
-MUSIC_KEYWORDS = {
-    "song", "music", "listen", "playlist", "vibe", "beat", "track", "artist",
-    "genre", "mood", "chill", "energy", "tempo", "acoustic", "rock", "pop",
-    "jazz", "hip", "hop", "rap", "indie", "folk", "edm", "classical", "lofi",
-    "sad", "happy", "intense", "relax", "dance", "workout", "study", "drive",
-    "morning", "night", "party", "sleep", "focus", "upbeat", "slow", "fast",
-}
-
-
-def _validate_query(query: str) -> str | None:
-    """
-    Returns an error message if the query should be rejected, otherwise None.
-    Checks for minimum length and whether the query seems music-related.
-    """
-    if len(query.strip()) < MIN_QUERY_LENGTH:
-        return "Query is too short. Please describe what you want to listen to."
-
-    words = set(query.lower().split())
-    if not words & MUSIC_KEYWORDS:
-        return (
-            "Your query doesn't seem music-related. "
-            "Try describing a mood, activity, genre, or vibe (e.g. 'chill music for studying')."
-        )
-
-    return None
-
+K_RETRIEVE = 50
 
 def _song_to_text(song: dict) -> str:
     return (
@@ -109,7 +81,7 @@ def build_index() -> None:
     print("Index complete.")
 
 
-def _retrieve(query: str, k: int = TOP_K) -> tuple[list[dict], list[float]]:
+def retrieve(query: str, k: int = K_RETRIEVE) -> tuple[list[dict], list[float]]:
     chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
     collection = _get_collection(chroma_client)
 
@@ -121,33 +93,15 @@ def _retrieve(query: str, k: int = TOP_K) -> tuple[list[dict], list[float]]:
     similarities = [round(1 - (d / 2), 3) for d in results["distances"][0]]
     return results["metadatas"][0], similarities
 
-
-def recommend(query: str, k: int = TOP_K) -> str:
+def generate(query: str, songs: list[dict]) -> str:
     """
-    Takes a natural language query and returns a Gemini-generated recommendation.
-    Requires build_index() to have been run first.
+    Formats the retrieved songs into a prompt and asks Gemini to recommend
+    the top 5 with explanations.
     """
-    error = _validate_query(query)
-    if error:
-        return f"[Input validation] {error}"
-
-    songs, similarities = _retrieve(query, k=k)
-
-    avg_similarity = round(sum(similarities) / len(similarities), 3)
-    print(f"Retrieval confidence — top {k} songs, avg similarity: {avg_similarity} "
-          f"(range: {min(similarities)}–{max(similarities)})\n")
-
-    if avg_similarity < LOW_CONFIDENCE_THRESHOLD:
-        return (
-            f"[Low confidence — avg similarity: {avg_similarity}] "
-            "The catalog doesn't have strong matches for that query. "
-            "Try rephrasing with a genre, mood, or activity."
-        )
-
     song_list = "\n".join(
         f"{i+1}. \"{s['title']}\" by {s['artist']} "
         f"(genre: {s['genre']}, mood: {s['mood']}, energy: {s['energy']}, "
-        f"valence: {s['valence']}, similarity: {similarities[i]})"
+        f"valence: {s['valence']})"
         for i, s in enumerate(songs)
     )
 

@@ -104,28 +104,29 @@ def _build_explanation(song_genre, song_mood, song_energy, song_acousticness,
     """Builds a human-readable explanation of the top reasons for a score."""
     reasons = []
 
-    if genre_s == 1.0:
-        reasons.append(f"exact genre match ({song_genre})")
-    elif genre_s >= 0.5:
-        reasons.append(
-            f"closely related genre ({song_genre} ~ {user_prefs['genre']}, "
-            f"similarity {genre_s})"
-        )
-    elif genre_s > 0:
-        reasons.append(
-            f"loosely related genre ({song_genre} ~ {user_prefs['genre']}, "
-            f"similarity {genre_s})"
-        )
+    if "genre" in user_prefs:
+        if genre_s == 1.0:
+            reasons.append(f"exact genre match ({song_genre})")
+        elif genre_s >= 0.5:
+            reasons.append(
+                f"closely related genre ({song_genre} ~ {user_prefs['genre']}, "
+                f"similarity {genre_s})"
+            )
+        elif genre_s > 0:
+            reasons.append(
+                f"loosely related genre ({song_genre} ~ {user_prefs['genre']}, "
+                f"similarity {genre_s})"
+            )
 
-    if mood_s == 1.0:
+    if "mood" in user_prefs and mood_s == 1.0:
         reasons.append(f"mood matches ({song_mood})")
 
-    if energy_s >= 0.85:
+    if "energy" in user_prefs and energy_s >= 0.85:
         reasons.append(
             f"energy is close ({song_energy} vs target {user_prefs['energy']})"
         )
 
-    if acoustic_s >= 0.85:
+    if "acousticness" in user_prefs and acoustic_s >= 0.85:
         reasons.append(
             f"acousticness fits preference ({song_acousticness})"
         )
@@ -143,15 +144,16 @@ def _compute_score(song_genre: str, song_mood: str, song_energy: float,
     """
     Computes a weighted score in the range 0.0–1.0 and an explanation string.
     """
-    genre_s    = _genre_score(song_genre, user_prefs["genre"])
-    mood_s     = 1.0 if song_mood == user_prefs["mood"] else 0.0
-    energy_s   = 1.0 - abs(song_energy - user_prefs["energy"])
-    acoustic_s = 1.0 - abs(song_acousticness - user_prefs["acousticness"])
-    valence_s  = 1.0 - abs(song_valence - user_prefs["valence"])
+    genre_s    = _genre_score(song_genre, user_prefs.get("genre", ""))
+    mood_s     = 1.0 if song_mood == user_prefs.get("mood") else 0.0
+    energy_s   = 1.0 - abs(song_energy - user_prefs.get("energy", song_energy))
+    acoustic_s = 1.0 - abs(song_acousticness - user_prefs.get("acousticness", song_acousticness))
+    valence_s  = 1.0 - abs(song_valence - user_prefs.get("valence", song_valence))
 
     song_tempo_norm = _normalize_tempo(song_tempo_bpm)
-    user_tempo_norm = _normalize_tempo(user_prefs["tempo_bpm"])
+    user_tempo_norm = _normalize_tempo(user_prefs.get("tempo_bpm", song_tempo_bpm))
     tempo_s = 1.0 - abs(song_tempo_norm - user_tempo_norm)
+
 
     raw = (
         genre_s    * WEIGHTS["genre"]        +
@@ -218,20 +220,19 @@ class Recommender:
 
 
 # ---------------------------------------------------------------------------
-# Functional interface (used by src/main.py)
+# Functional interface (used by pipeline.py via _retrieve_rules)
 # ---------------------------------------------------------------------------
 
 def load_songs(csv_path: str) -> List[Dict]:
     """
     Loads songs from a CSV file.
-    Required by src/main.py
+    Required by pipeline.py
     """
     songs = []
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             songs.append({
-                "id":           int(row["id"]),
                 "title":        row["title"],
                 "artist":       row["artist"],
                 "genre":        row["genre"],
@@ -249,7 +250,7 @@ def recommend_songs(user_prefs: Dict, songs: List[Dict],
                     k: int = 5) -> List[Tuple[Dict, float, str]]:
     """
     Functional implementation of the recommendation logic.
-    Required by src/main.py
+    Required by pipeline.py
     Returns a list of (song_dict, score, explanation) tuples, best first.
     """
     scored = []
