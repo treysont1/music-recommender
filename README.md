@@ -48,7 +48,46 @@ rag.py — Gemini 2.5 Flash generates recommendation with explanations
 
 Both channels' top 50 are passed to **Reciprocal Rank Fusion (RRF)**. The fused top 10 are sent to Gemini.
 
-See [flowchart.mmd](flowchart.mmd) for a visual breakdown.
+**Visual breakdown:**
+
+```mermaid
+flowchart TD
+    subgraph DATA["Data Pipeline (run once)"]
+        A1[Kaggle Spotify CSVs] --> A2[prepare_data.py\nmerge · rename · derive mood]
+        A2 --> A3[(spotify_tracks.csv\n1000 top tracks)]
+    end
+
+    subgraph INDEX["Indexing (run once)"]
+        A3 --> B1[build_index\nsrc/rag.py]
+        B1 --> B2[SentenceTransformer\nall-MiniLM-L6-v2\nlocal embeddings]
+        B2 --> B3[(ChromaDB\nvector store)]
+    end
+
+    subgraph PIPELINE["Hybrid Pipeline (every query)"]
+        C1([User\nnatural language query]) --> C2[validate_query\nsrc/pipeline.py]
+        C2 --> C3[extract_preferences\nsrc/ranking.py\nsparse prefs dict]
+
+        C3 --> D1[RAG channel\nretrieve · top 50\nsrc/rag.py]
+        C3 --> E1[Rule channel\nrecommend_songs · top 50\nsrc/recommender.py]
+
+        D1 --> F1[fuse · RRF\nsrc/ranking.py\ntop 10]
+        E1 --> F1
+
+        F1 --> G1[generate\nsrc/rag.py\nGemini 2.5 Flash]
+        G1 --> H1([Recommendation\ntop 5 songs with explanations])
+    end
+
+    B3 --> D1
+    A3 --> E1
+
+    subgraph TESTING["Testing"]
+        T1[pytest · 30 tests\ntest_ranking.py · test_rag.py · test_recommender.py]
+        T2[evaluate_rag.py\nmanual retrieval eval]
+    end
+
+    T1 -.->|validates| PIPELINE
+    T2 -.->|inspects| D1
+```
 
 ---
 
