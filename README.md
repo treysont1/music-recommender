@@ -1,4 +1,4 @@
-# Music Recommender — RAG Edition
+# Riff
 
 ## Original Project: Music Recommender Simulation
 
